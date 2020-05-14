@@ -1,5 +1,11 @@
 /// Reference https://github.com/socketio/engine.io-protocol
 
+pub type SID = String;
+
+pub fn generate_sid() -> SID {
+    unimplemented!()
+}
+
 #[derive(Debug, Clone)]
 pub enum PollingType {
     JSONP,
@@ -75,3 +81,6 @@ impl Packet {
 pub struct Payload {
     packets: Vec<Packet>,
 }
+
+#[cfg(test)]
+mod test {}
