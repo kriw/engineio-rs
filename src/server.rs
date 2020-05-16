@@ -1,9 +1,11 @@
 use std::collections::HashMap;
+use std::marker::Sync;
 
-use crate::client::Client;
 use crate::packet::SID;
+use crate::socket::Socket;
 
-use futures::{FutureExt, StreamExt};
+use serde_derive::Deserialize;
+use warp::filters::ws::WebSocket as WSFilter;
 use warp::ws::WebSocket;
 use warp::Filter;
 
@@ -42,38 +44,66 @@ where
     allow_request: bool,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct QueryParam {
+    sid: Option<SID>,
+    transports: Option<String>,
+}
+
 pub struct Server<W, C>
 where
-    W: WSEngine + 'static,
-    C: CORSMiddleware + 'static,
+    W: WSEngine + Sync + 'static,
+    C: CORSMiddleware + Sync + 'static,
 {
     ws: W,
     cors_middleware: Option<C>,
-    clients: HashMap<SID, Client>,
+    clients: HashMap<SID, Socket>,
 }
 
 impl<W, C> Server<W, C>
 where
-    W: WSEngine + 'static,
-    C: CORSMiddleware + 'static,
+    W: WSEngine + Sync + 'static,
+    C: CORSMiddleware + Sync + 'static,
 {
     pub async fn listen() {
-        let handle_polling = warp::path::end().map(|| "OK polling".to_string());
-        let handle_ws = warp::path::end().and(warp::ws()).map(|ws: warp::ws::Ws| {
-            println!("ws: {:?}", ws);
-            ws.on_upgrade(move |socket| Self::on_connected(socket))
+        let handle_polling = warp::path::end().map(|| {
+            // TODO Handle Request
+            "OK polling".to_string()
         });
+        let handle_ws = warp::path::end()
+            .and(warp::query::<QueryParam>())
+            .and(warp::ws())
+            .map(|param: QueryParam, ws: warp::ws::Ws| {
+                println!("ws: {:?}", ws);
+                ws.on_upgrade(|socket| Self::on_ws_connected(socket, param))
+            });
         warp::serve(handle_ws.or(handle_polling))
             .run(([0, 0, 0, 0], 3030))
             .await;
     }
 
-    async fn on_connected(ws: WebSocket) {
+    async fn on_ws_connected(ws: WebSocket, param: QueryParam) {
         println!("on upgrade {:?}", ws);
-        let (tx, mut rx) = ws.split();
-        while let Some(result) = rx.next().await {
-            println!("message: {:?}", result);
-        }
+        Self::on_websocket(ws, param).await;
+    }
+
+    async fn on_websocket(ws: WSFilter, param: QueryParam) {
+        println!("Param: {:?}", param);
+        // TODO Get client sid from query params
+        let sock = if let Some(_sid) = param.sid {
+            // TODO Get Socket by sid
+            // unimplemented!()
+            Socket { ws }
+        } else {
+            Self::handshake(ws).await
+        };
+        sock.run_ws().await;
+    }
+
+    async fn handshake(ws: WSFilter) -> Socket {
+        // TODO Get transport from query params
+        // TODO Check binary is supported (binary mode if b64 is set true)
+        Socket { ws }
     }
 
     /// Verify a request
