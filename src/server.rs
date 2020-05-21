@@ -4,6 +4,7 @@ use std::marker::Sync;
 use crate::packet::SID;
 use crate::socket::Socket;
 
+use log::trace;
 use serde_derive::Deserialize;
 use warp::filters::ws::WebSocket as WSFilter;
 use warp::ws::WebSocket;
@@ -47,7 +48,7 @@ where
 #[derive(Deserialize, Debug, Clone)]
 pub struct QueryParam {
     sid: Option<SID>,
-    transports: Option<String>,
+    transport: Option<String>,
 }
 
 pub struct Server<W, C>
@@ -66,11 +67,13 @@ where
     C: CORSMiddleware + Sync + 'static,
 {
     pub async fn listen() {
-        let handle_polling = warp::path::end().map(|| {
+        let handle_polling = warp::path("engine.io").and(warp::path::end()).map(|| {
+            println!("http");
             // TODO Handle Request
             "OK polling".to_string()
         });
-        let handle_ws = warp::path::end()
+        let handle_ws = warp::path("engine.io")
+            .and(warp::path::end())
             .and(warp::query::<QueryParam>())
             .and(warp::ws())
             .map(|param: QueryParam, ws: warp::ws::Ws| {
@@ -93,7 +96,7 @@ where
         let sock = if let Some(_sid) = param.sid {
             // TODO Get Socket by sid
             // unimplemented!()
-            Socket { ws }
+            Socket::new(ws)
         } else {
             Self::handshake(ws).await
         };
@@ -101,9 +104,16 @@ where
     }
 
     async fn handshake(ws: WSFilter) -> Socket {
+        trace!("handshake");
         // TODO Get transport from query params
         // TODO Check binary is supported (binary mode if b64 is set true)
-        Socket { ws }
+
+        let mut ret = Socket::new(ws);
+        ret.on_open().await;
+
+        // TODO Emit `open` event
+        // TODO Emit `connection` event
+        ret
     }
 
     /// Verify a request

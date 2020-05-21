@@ -10,3 +10,4 @@ edition = "2018"
 
 engineio-rs = { path = "../../" }
 tokio = { version = "0.2", features = ["full"]}
+simple_logger = "1.6.0"
