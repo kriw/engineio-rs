@@ -5,7 +5,7 @@ use crate::packet::SID;
 use crate::socket::Socket;
 
 use log::trace;
-use serde_derive::Deserialize;
+use serde::Deserialize;
 use warp::filters::ws::WebSocket as WSFilter;
 use warp::ws::WebSocket;
 use warp::Filter;
