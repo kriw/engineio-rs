@@ -165,6 +165,7 @@ where
         let (tx, rx) = channel();
         let mut ret = Socket::new(rx, ws);
         self.clients.lock().await.insert(ret.sid(), tx);
+        debug!("#Client: {:?}", self.clients.lock().await.len());
         ret.on_open().await;
 
         ret
