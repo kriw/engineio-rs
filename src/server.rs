@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::marker::Sync;
 
-use crate::packet::SID;
+use crate::packet::{Packet, SID};
 use crate::socket::Socket;
 
-use log::trace;
+use log::{debug, trace};
 use serde::Deserialize;
 use warp::filters::ws::WebSocket as WSFilter;
 use warp::ws::WebSocket;
@@ -67,11 +67,24 @@ where
     C: CORSMiddleware + Sync + 'static,
 {
     pub async fn listen() {
-        let handle_polling = warp::path("engine.io").and(warp::path::end()).map(|| {
-            println!("http");
-            // TODO Handle Request
-            "OK polling".to_string()
-        });
+        let handle_polling_get = warp::path("engine.io")
+            .and(warp::path::end())
+            .and(warp::query::<QueryParam>())
+            .map(|param: QueryParam| {
+                debug!("http GET message: {:?}", param);
+                // TODO Handle Request
+                Packet::open().encode()
+            });
+        let handle_polling_post = warp::path("engine.io")
+            .and(warp::path::end())
+            .and(warp::body::content_length_limit(1024 * 32))
+            .and(warp::body::bytes())
+            .map(|bytes: bytes::Bytes| {
+                debug!("http POST message: {:?}", bytes);
+                // TODO Handle Request
+                Packet::open().encode()
+            });
+
         let handle_ws = warp::path("engine.io")
             .and(warp::path::end())
             .and(warp::query::<QueryParam>())
@@ -80,7 +93,7 @@ where
                 println!("ws: {:?}", ws);
                 ws.on_upgrade(|socket| Self::on_ws_connected(socket, param))
             });
-        warp::serve(handle_ws.or(handle_polling))
+        warp::serve(handle_ws.or(handle_polling_post).or(handle_polling_get))
             .run(([0, 0, 0, 0], 3030))
             .await;
     }
