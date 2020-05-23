@@ -1,14 +1,7 @@
 /// Reference https://github.com/socketio/engine.io-protocol
-use log::warn;
+use crate::socket::SID;
+
 use serde::{Deserialize, Serialize};
-
-pub type SID = String;
-
-pub fn generate_sid() -> SID {
-    // TODO Generate random string
-    warn!("[generate_sid] Not yet implemented");
-    "sSRZaN1iQJy4BS31AAAE".to_string()
-}
 
 #[derive(Debug, Clone)]
 pub enum PollingType {
@@ -63,9 +56,9 @@ pub struct Packet {
 }
 
 impl Packet {
-    pub fn open() -> Self {
+    pub fn open(sid: SID) -> Self {
         let welcome = WelcomeMessage {
-            sid: generate_sid(),
+            sid,
             upgrades: Vec::new(),
             ping_interval: 25000,
             ping_timeout: 5000,

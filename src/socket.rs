@@ -1,24 +1,57 @@
+use std::sync::mpsc::Receiver;
+
 use crate::packet::{Packet, PacketType};
 
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
-use log::{debug, error, trace};
+use log::{debug, error, trace, warn};
+use rand::prelude::*;
 use warp::filters::ws::{Message, WebSocket};
 
+pub type SID = String;
+
+const BASE_STR: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+pub fn generate_sid() -> SID {
+    let mut rng = rand::thread_rng();
+    String::from_utf8(
+        BASE_STR
+            .as_bytes()
+            .choose_multiple(&mut rng, 20)
+            .cloned()
+            .collect(),
+    )
+    .unwrap()
+}
+
 // Transport traitをつかった実装になおす (JSONP, XHRに対応する。)
+#[derive(Debug)]
 pub struct Socket {
+    sid: SID,
+    server_rx: Receiver<String>,
     tx: SplitSink<WebSocket, Message>,
     rx: SplitStream<WebSocket>,
 }
 
 impl Socket {
-    pub fn new(ws: WebSocket) -> Self {
+    pub fn new(server_rx: Receiver<String>, ws: WebSocket) -> Self {
         let (tx, rx) = ws.split();
-        Self { tx, rx }
+        let sid = generate_sid();
+        debug!("sid: {:?}", sid);
+        Self {
+            sid,
+            server_rx,
+            tx,
+            rx,
+        }
+    }
+
+    pub fn sid(&self) -> SID {
+        self.sid.clone()
     }
 
     pub async fn on_open(&mut self) {
-        let message = Message::text(Packet::open().encode().as_str());
+        let message = Message::text(Packet::open(self.sid.clone()).encode().as_str());
         trace!("on open: {:?}", message);
         if let Err(e) = self.tx.send(message).await {
             error!("{:?}", e);
