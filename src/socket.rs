@@ -1,6 +1,5 @@
-use std::sync::mpsc::Receiver;
-
 use crate::packet::{Packet, PacketType};
+use crate::util;
 
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
@@ -28,22 +27,17 @@ pub fn generate_sid() -> SID {
 #[derive(Debug)]
 pub struct Socket {
     sid: SID,
-    server_rx: Receiver<String>,
+    ch: util::BiChan<String, String>,
     tx: SplitSink<WebSocket, Message>,
     rx: SplitStream<WebSocket>,
 }
 
 impl Socket {
-    pub fn new(server_rx: Receiver<String>, ws: WebSocket) -> Self {
+    pub fn new(ch: util::BiChan<String, String>, ws: WebSocket) -> Self {
         let (tx, rx) = ws.split();
         let sid = generate_sid();
         debug!("sid: {:?}", sid);
-        Self {
-            sid,
-            server_rx,
-            tx,
-            rx,
-        }
+        Self { sid, ch, tx, rx }
     }
 
     pub fn sid(&self) -> SID {
@@ -81,6 +75,10 @@ impl Socket {
     }
 
     pub async fn on_upgrade(&mut self, _packet: &Packet) {
+        unimplemented!()
+    }
+
+    pub async fn run_polling(self) {
         unimplemented!()
     }
 

@@ -1,12 +1,14 @@
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::marker::PhantomData;
 use std::marker::Sync;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::packet::Packet;
+use crate::packet::{Packet, Payload};
 use crate::socket::{Socket, SID};
+use crate::util;
 
 use log::{debug, trace};
 use serde::Deserialize;
@@ -55,7 +57,7 @@ pub struct QueryParam {
     transport: Option<String>,
 }
 
-type Clients = Arc<Mutex<HashMap<SID, Sender<String>>>>;
+type Clients = Arc<Mutex<HashMap<SID, util::BiChan<String, String>>>>;
 
 #[derive(Debug)]
 pub struct Server<W, C>
@@ -107,23 +109,16 @@ where
             let server = warp::any().map(move || server.clone());
             let handle_polling_get = warp::path("engine.io")
                 .and(warp::path::end())
-                .and(warp::query::<QueryParam>())
                 .and(server.clone())
-                .map(|param: QueryParam, _server: Self| {
-                    debug!("http GET message: {:?}", param);
-                    // TODO Handle Request
-                    Packet::open("todo".to_string()).encode()
-                });
+                .and(warp::query::<QueryParam>())
+                .and_then(Self::on_get);
             let handle_polling_post = warp::path("engine.io")
                 .and(warp::path::end())
+                .and(server.clone())
+                .and(warp::query::<QueryParam>())
                 .and(warp::body::content_length_limit(1024 * 32))
                 .and(warp::body::bytes())
-                .and(server.clone())
-                .map(|bytes: bytes::Bytes, _server: Self| {
-                    debug!("http POST message: {:?}", bytes);
-                    // TODO Handle Request
-                    Packet::open("todo".to_string()).encode()
-                });
+                .and_then(Self::on_post);
 
             let handle_ws = warp::path("engine.io")
                 .and(warp::path::end())
@@ -139,12 +134,38 @@ where
         warp::serve(handler).run(([0, 0, 0, 0], 3030)).await;
     }
 
-    async fn on_ws_connected(self, ws: WebSocket, param: QueryParam) {
-        println!("on upgrade {:?}", ws);
-        self.on_websocket(ws, param).await;
+    async fn on_get(self, param: QueryParam) -> Result<String, Infallible> {
+        Ok(self.on_request(param, None, false).await)
     }
 
-    async fn on_websocket(self, ws: WSFilter, param: QueryParam) {
+    async fn on_post(self, param: QueryParam, bytes: bytes::Bytes) -> Result<String, Infallible> {
+        Ok(self.on_request(param, Some(bytes), true).await)
+    }
+
+    async fn on_request(
+        self,
+        param: QueryParam,
+        data: Option<bytes::Bytes>,
+        is_post: bool,
+    ) -> String {
+        debug!(
+            "http message: {:?}, data: {:?}, is_post: {}",
+            param, data, is_post
+        );
+        // TODO Handle Request
+        if let Some(_sid) = param.sid {
+            if is_post {
+                Payload::from(vec![Packet::message("po")]).encode()
+            } else {
+                Payload::from(vec![Packet::noop()]).encode()
+            }
+        } else {
+            Payload::from(vec![Packet::open("todo".to_string())]).encode()
+        }
+    }
+
+    async fn on_ws_connected(self, ws: WebSocket, param: QueryParam) {
+        println!("on upgrade {:?}", ws);
         println!("Param: {:?}", param);
         // TODO Get client sid from query params
         let sock = if let Some(_sid) = param.sid {
@@ -162,7 +183,7 @@ where
         // TODO Get transport from query params
         // TODO Check binary is supported (binary mode if b64 is set true)
 
-        let (tx, rx) = channel();
+        let (tx, rx) = util::BiChan::new();
         let mut ret = Socket::new(rx, ws);
         self.clients.lock().await.insert(ret.sid(), tx);
         debug!("#Client: {:?}", self.clients.lock().await.len());

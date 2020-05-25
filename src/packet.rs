@@ -88,10 +88,10 @@ impl Packet {
         }
     }
 
-    pub fn message(message: String) -> Self {
+    pub fn message(message: &str) -> Self {
         Self {
             typ: PacketType::Message,
-            message,
+            message: message.to_string(),
         }
     }
 
@@ -123,6 +123,23 @@ impl Packet {
 #[derive(Debug, Clone)]
 pub struct Payload {
     packets: Vec<Packet>,
+}
+
+impl Payload {
+    pub fn encode(&self) -> String {
+        let s = self
+            .packets
+            .iter()
+            .map(|p| p.encode())
+            .fold(String::new(), |x, y| x + &y);
+        format!("{}:{}", s.len(), s)
+    }
+}
+
+impl From<Vec<Packet>> for Payload {
+    fn from(packets: Vec<Packet>) -> Self {
+        Self { packets }
+    }
 }
 
 #[cfg(test)]
