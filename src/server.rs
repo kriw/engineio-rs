@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 use crate::packet::{Packet, Payload};
 use crate::socket::{Socket, SID};
+use crate::transports::{polling, websocket};
 use crate::util;
 
 use log::{debug, trace};
@@ -178,14 +179,15 @@ where
         sock.run_ws().await;
     }
 
-    async fn handshake(self, ws: WSFilter) -> Socket {
+    async fn handshake(self, ws: WSFilter) -> Socket<websocket::WebSocket> {
         trace!("handshake");
         // TODO Get transport from query params
         // TODO Check binary is supported (binary mode if b64 is set true)
 
-        let (tx, rx) = util::BiChan::new();
-        let mut ret = Socket::new(rx, ws);
-        self.clients.lock().await.insert(ret.sid(), tx);
+        let (ch1, ch2) = util::BiChan::new();
+        let transport_ws = websocket::WebSocket::new(ws);
+        let mut ret = Socket::<websocket::WebSocket>::new(transport_ws, ch1, 1500, 1500);
+        self.clients.lock().await.insert(ret.sid(), ch2);
         debug!("#Client: {:?}", self.clients.lock().await.len());
         ret.on_open().await;
 

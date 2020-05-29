@@ -1,11 +1,12 @@
-use crate::packet::{Packet, PacketType};
+use std::time::Duration;
+
+use crate::packet::Packet;
+use crate::transports::Transport;
 use crate::util;
 
-use futures::stream::{SplitSink, SplitStream};
-use futures::{SinkExt, StreamExt};
-use log::{debug, error, trace, warn};
+use crossbeam::channel::{select, tick, unbounded};
+use log::{debug, error, trace};
 use rand::prelude::*;
-use warp::filters::ws::{Message, WebSocket};
 
 pub type SID = String;
 
@@ -25,19 +26,30 @@ pub fn generate_sid() -> SID {
 
 // Transport traitをつかった実装になおす (JSONP, XHRに対応する。)
 #[derive(Debug)]
-pub struct Socket {
+pub struct Socket<T: Transport> {
     sid: SID,
+    transport: T,
     ch: util::BiChan<String, String>,
-    tx: SplitSink<WebSocket, Message>,
-    rx: SplitStream<WebSocket>,
+    ping_interval: u64,
+    ping_timeout: u64,
 }
 
-impl Socket {
-    pub fn new(ch: util::BiChan<String, String>, ws: WebSocket) -> Self {
-        let (tx, rx) = ws.split();
+impl<T: Transport> Socket<T> {
+    pub fn new(
+        transport: T,
+        ch: util::BiChan<String, String>,
+        ping_interval: u64,
+        ping_timeout: u64,
+    ) -> Self {
         let sid = generate_sid();
         debug!("sid: {:?}", sid);
-        Self { sid, ch, tx, rx }
+        Self {
+            transport,
+            sid,
+            ch,
+            ping_interval,
+            ping_timeout,
+        }
     }
 
     pub fn sid(&self) -> SID {
@@ -45,17 +57,17 @@ impl Socket {
     }
 
     pub async fn on_open(&mut self) {
-        let message = Message::text(Packet::open(self.sid.clone()).encode().as_str());
+        let message = Packet::open(self.sid.clone()).encode();
         trace!("on open: {:?}", message);
-        if let Err(e) = self.tx.send(message).await {
+        if let Err(e) = self.transport.send_message(message).await {
             error!("{:?}", e);
         }
     }
 
     pub async fn on_message(&mut self, packet: &Packet) {
         trace!("on message: {:?}", packet);
-        let message = Message::text(packet.encode().as_str());
-        self.tx.send(message).await.unwrap();
+        let message = packet.encode();
+        self.transport.send_message(message).await.unwrap();
     }
 
     pub async fn on_close(&mut self, _packet: &Packet) {
@@ -64,8 +76,8 @@ impl Socket {
 
     pub async fn on_ping(&mut self, packet: &Packet) {
         trace!("on ping: {:?}", packet);
-        let message = Message::text(Packet::pong().encode().as_str());
-        if let Err(e) = self.tx.send(message).await {
+        let message = Packet::pong().encode();
+        if let Err(e) = self.transport.send_message(message).await {
             error!("{:?}", e);
         }
     }
@@ -82,24 +94,52 @@ impl Socket {
         unimplemented!()
     }
 
-    pub async fn run_ws(mut self) {
-        // TODO Call handshake if sid is not set
-        while let Some(Ok(result)) = self.rx.next().await {
-            debug!("incoming message {:?}", result);
-            if result.is_close() {
-                // Close socket
-                unimplemented!()
+    pub async fn run(self) {
+        let ping_tick = tick(Duration::from_millis(self.ping_interval));
+        let (tx, rx) = unbounded();
+        let reset = move || {
+            tx.send(());
+        };
+        let ping_timeout = util::resettable_timeout(Duration::from_millis(self.ping_timeout), rx);
+
+        loop {
+            select! {
+                recv(self.ch.rx) -> _ => {
+                    // Handle Message
+                    unimplemented!()
+                },
+                recv(ping_tick) -> _ => {
+                    if let Err(err) = self.transport.send_ping().await {
+                        error!("{:?}", err);
+                    }
+                },
+                recv(ping_timeout) -> _ => {
+                    // TODO Close connection
+                    unimplemented!()
+                },
             }
-            let packet = Packet::decode(result.to_str().unwrap());
-            match packet.typ {
-                PacketType::Open => {}
-                PacketType::Ping => self.on_ping(&packet).await,
-                PacketType::Pong => self.on_pong(&packet).await,
-                PacketType::Close => self.on_close(&packet).await,
-                PacketType::Message => self.on_message(&packet).await,
-                PacketType::Upgrade => self.on_upgrade(&packet).await,
-                PacketType::Noop => {}
-            };
         }
+    }
+
+    pub async fn run_ws(self) {
+        unimplemented!()
+        // // TODO Call handshake if sid is not set
+        // while let Some(Ok(result)) = self.rx.next().await {
+        //     debug!("incoming message {:?}", result);
+        //     if result.is_close() {
+        //         // Close socket
+        //         unimplemented!()
+        //     }
+        //     let packet = Packet::decode(result.to_str().unwrap());
+        //     match packet.typ {
+        //         PacketType::Open => {}
+        //         PacketType::Ping => self.on_ping(&packet).await,
+        //         PacketType::Pong => self.on_pong(&packet).await,
+        //         PacketType::Close => self.on_close(&packet).await,
+        //         PacketType::Message => self.on_message(&packet).await,
+        //         PacketType::Upgrade => self.on_upgrade(&packet).await,
+        //         PacketType::Noop => {}
+        //     };
+        // }
     }
 }
