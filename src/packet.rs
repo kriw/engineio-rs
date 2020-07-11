@@ -15,6 +15,14 @@ pub enum Transport {
     Polling(PollingType),
 }
 
+#[derive(Debug)]
+pub enum DecodeError {
+    Err(String),
+}
+
+type PacketDecodeResult = Result<Packet, DecodeError>;
+type PayloadDecodeResult = Result<Payload, DecodeError>;
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub enum PacketType {
     Open = 0,
@@ -77,14 +85,14 @@ impl Packet {
     pub fn ping() -> Self {
         Self {
             typ: PacketType::Ping,
-            message: "probe".to_string(),
+            message: String::new(),
         }
     }
 
     pub fn pong() -> Self {
         Self {
             typ: PacketType::Pong,
-            message: "probe".to_string(),
+            message: String::new(),
         }
     }
 
@@ -110,13 +118,14 @@ impl Packet {
         (self.typ as i32).to_string() + &self.message
     }
 
-    pub fn decode(msg: &str) -> Self {
+    pub fn decode(msg: &str) -> PacketDecodeResult {
         let (event_str, msg) = msg.split_at(1);
         let typ = PacketType::from(event_str.to_string());
-        Self {
+        // TODO Return err if invalid
+        Ok(Self {
             typ,
             message: msg.to_string(),
-        }
+        })
     }
 }
 
@@ -134,11 +143,22 @@ impl Payload {
             .fold(String::new(), |x, y| x + &y);
         format!("{}:{}", s.len(), s)
     }
+
+    pub fn decode(s: &str) -> PayloadDecodeResult {
+        // TODO Return err if invalid
+        unimplemented!()
+    }
 }
 
 impl From<Vec<Packet>> for Payload {
     fn from(packets: Vec<Packet>) -> Self {
         Self { packets }
+    }
+}
+
+impl From<Payload> for Vec<Packet> {
+    fn from(payload: Payload) -> Vec<Packet> {
+        payload.packets
     }
 }
 

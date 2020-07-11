@@ -7,13 +7,11 @@ use warp::filters::ws::{Message, WebSocket as WS};
 
 pub struct WebSocket {
     tx: SplitSink<WS, Message>,
-    rx: SplitStream<WS>,
 }
 
 impl WebSocket {
-    pub fn new(ws: WS) -> Self {
-        let (tx, rx) = ws.split();
-        Self { tx, rx }
+    pub fn new(tx: SplitSink<WS, Message>) -> Self {
+        Self { tx }
     }
 }
 
